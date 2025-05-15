@@ -3,8 +3,11 @@ package com.game.wordwell
 import android.animation.ObjectAnimator
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
@@ -17,9 +20,12 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import java.io.BufferedReader
-import java.util.*
 
 class WordleActivity : AppCompatActivity() {
+    companion object {
+        private const val TAG = "WordleActivity"
+    }
+
     private lateinit var gameGrid: GridLayout
     private lateinit var hiddenInput: EditText
     private var currentRow = 0
@@ -29,6 +35,8 @@ class WordleActivity : AppCompatActivity() {
     private lateinit var targetWord: String
     private val gameBoard = Array(maxAttempts) { Array(wordLength) { "" } }
     private val wordList = mutableListOf<String>()
+    private var isProcessingEnter = false
+    private var isClearing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,40 +62,67 @@ class WordleActivity : AppCompatActivity() {
     private fun setupInputHandling() {
         // Handle text input
         hiddenInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {
+                Log.d(TAG, "beforeTextChanged: s=$s, start=$start, count=$count, after=$after")
+            }
             
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                if (s != null && s.isNotEmpty()) {
+                Log.d(TAG, "onTextChanged: s=$s, start=$start, before=$before, count=$count, isClearing=$isClearing")
+                
+                // Skip processing if we're in the middle of clearing
+                if (isClearing) {
+                    return
+                }
+                
+                if (!s.isNullOrEmpty()) {
                     val lastChar = s.last()
                     if (lastChar.isLetter()) {
                         handleLetter(lastChar.uppercaseChar())
                     }
                     // Clear the input after processing
+                    isClearing = true
                     hiddenInput.text.clear()
+                    isClearing = false
                 }
             }
             
-            override fun afterTextChanged(s: Editable?) {}
+            override fun afterTextChanged(s: Editable?) {
+                Log.d(TAG, "afterTextChanged: s=$s")
+            }
         })
 
-        // Handle Enter and Backspace
-        hiddenInput.setOnEditorActionListener { _, actionId, event ->
-            when {
-                actionId == EditorInfo.IME_ACTION_DONE -> {
+        // Handle Enter - simplify to just handle IME_ACTION_DONE
+        hiddenInput.setOnEditorActionListener { _, actionId, _ ->
+            Log.d(TAG, "onEditorAction: actionId=$actionId")
+            when (actionId) {
+                EditorInfo.IME_ACTION_DONE -> {
+                    Log.d(TAG, "IME_ACTION_DONE triggered")
                     handleEnter()
-                    true
-                }
-                event?.keyCode == KeyEvent.KEYCODE_DEL -> {
-                    handleBackspace()
                     true
                 }
                 else -> false
             }
         }
+
+        // Handle backspace key directly
+        hiddenInput.setOnKeyListener { _, keyCode, event ->
+            Log.d(TAG, "onKey: keyCode=$keyCode, action=${event.action}")
+            if (keyCode == KeyEvent.KEYCODE_DEL && event.action == KeyEvent.ACTION_DOWN) {
+                Log.d(TAG, "KEYCODE_DEL triggered in key listener")
+                handleBackspace()
+                true
+            } else if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
+                Log.d(TAG, "KEYCODE_ENTER triggered in key listener")
+                handleEnter()
+                true
+            } else {
+                false
+            }
+        }
     }
 
     private fun showKeyboard(view: View) {
-        if (view.requestFocus()) {
+        if (!isFinishing && view.requestFocus()) {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
         }
@@ -96,7 +131,10 @@ class WordleActivity : AppCompatActivity() {
     private fun loadWordList() {
         resources.openRawResource(R.raw.wordle_words).use { inputStream ->
             BufferedReader(inputStream.reader()).useLines { lines ->
-                wordList.addAll(lines)
+                for (line in lines) {
+                    val cleanedWord = line.trim().lowercase()
+                    wordList.add(cleanedWord)
+                }
             }
         }
     }
@@ -137,40 +175,99 @@ class WordleActivity : AppCompatActivity() {
             currentCol--
             gameBoard[currentRow][currentCol] = ""
             updateCell(currentRow, currentCol, "")
+            // Clear the hidden input to prevent double handling
+            isClearing = true
+            hiddenInput.text.clear()
+            isClearing = false
         }
     }
 
     private fun handleEnter() {
-        if (currentCol == wordLength) {
-            val guess = gameBoard[currentRow].joinToString("")
-            if (!wordList.contains(guess.lowercase())) {
-                showInvalidWordDialog()
-                return
-            }
-
-            val result = checkGuess(guess)
-            updateRowColors(currentRow, result)
-            
-            if (guess == targetWord) {
-                showWinDialog()
-                return
-            }
-
-            if (currentRow == maxAttempts - 1) {
-                showGameOverDialog()
-                return
-            }
-
-            currentRow++
-            currentCol = 0
+        Log.d(TAG, "handleEnter called: isProcessingEnter=$isProcessingEnter, currentCol=$currentCol")
+        
+        // Prevent duplicate processing
+        if (isProcessingEnter) {
+            Log.d(TAG, "handleEnter: already processing, returning")
+            return
         }
+        
+        if (currentCol != wordLength) {
+            Log.d(TAG, "handleEnter: word not complete, returning")
+            return
+        }
+
+        isProcessingEnter = true
+        
+        val guess = gameBoard[currentRow].joinToString("")
+        Log.d(TAG, "handleEnter: processing guess=$guess")
+        
+        // Clear input immediately to prevent any further processing
+        isClearing = true
+        hiddenInput.text.clear()
+        isClearing = false
+        
+        // Check for invalid word first
+        if (!wordList.contains(guess.lowercase())) {
+            Log.d(TAG, "handleEnter: invalid word detected")
+            showInvalidWordDialog()
+            isProcessingEnter = false
+            return
+        }
+
+        // Process valid guess
+        val result = checkGuess(guess)
+        updateRowColors(currentRow, result)
+        
+        // Check win condition
+        if (guess == targetWord) {
+            Log.d(TAG, "handleEnter: win condition met")
+            showWinDialog()
+            isProcessingEnter = false
+            return
+        }
+
+        // Check game over condition
+        if (currentRow == maxAttempts - 1) {
+            Log.d(TAG, "handleEnter: game over condition met")
+            showGameOverDialog()
+            isProcessingEnter = false
+            return
+        }
+
+        // Move to next row
+        Log.d(TAG, "handleEnter: moving to next row")
+        currentRow++
+        currentCol = 0
+        isProcessingEnter = false
     }
 
     private fun showInvalidWordDialog() {
+        Log.d(TAG, "showInvalidWordDialog called")
+        if (isFinishing) {
+            Log.d(TAG, "showInvalidWordDialog: activity is finishing, returning")
+            return
+        }
+        
+        // Disable input while dialog is showing
+        hiddenInput.isEnabled = false
+        
         AlertDialog.Builder(this)
             .setTitle("Invalid Word")
             .setMessage("This word is not in our dictionary.")
             .setPositiveButton("OK", null)
+            .setOnDismissListener {
+                Log.d(TAG, "Invalid word dialog dismissed")
+                // Re-enable input
+                hiddenInput.isEnabled = true
+                
+                // Use Handler to delay keyboard showing after dialog dismissal
+                Handler(Looper.getMainLooper()).postDelayed({
+                    Log.d(TAG, "Showing keyboard after dialog dismissal")
+                    if (!isFinishing) {
+                        showKeyboard(hiddenInput)
+                    }
+                }, 100)
+            }
             .show()
     }
 
