@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="cell_size">48dp</dimen>
+    <dimen name="cell_margin">4dp</dimen>
+    <dimen name="key_size">36dp</dimen>
+    <dimen name="key_margin">4dp</dimen>
+</resources> 
