@@ -1,29 +1,33 @@
 package com.game.wordwell
 
 import android.animation.ObjectAnimator
+import android.content.Context
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.KeyEvent
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.GridLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.google.android.material.button.MaterialButton
 import java.io.BufferedReader
 import java.util.*
 
 class WordleActivity : AppCompatActivity() {
     private lateinit var gameGrid: GridLayout
-    private lateinit var keyboardContainer: View
+    private lateinit var hiddenInput: EditText
     private var currentRow = 0
     private var currentCol = 0
     private val wordLength = 5
     private val maxAttempts = 6
     private lateinit var targetWord: String
     private val gameBoard = Array(maxAttempts) { Array(wordLength) { "" } }
-    private val keyboardKeys = mutableMapOf<Char, MaterialButton>()
-    private val keyStates = mutableMapOf<Char, Int>() // 0: unused, 1: wrong, 2: wrong position, 3: correct
     private val wordList = mutableListOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,12 +35,62 @@ class WordleActivity : AppCompatActivity() {
         setContentView(R.layout.activity_wordle)
 
         gameGrid = findViewById(R.id.gameGrid)
-        keyboardContainer = findViewById(R.id.keyboardContainer)
+        hiddenInput = findViewById(R.id.hiddenInput)
 
         loadWordList()
         selectRandomWord()
         setupGameGrid()
-        setupKeyboard()
+        setupInputHandling()
+        
+        // Show keyboard when activity starts
+        showKeyboard(hiddenInput)
+
+        // Make the game area clickable to show keyboard
+        gameGrid.setOnClickListener {
+            showKeyboard(hiddenInput)
+        }
+    }
+
+    private fun setupInputHandling() {
+        // Handle text input
+        hiddenInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (s != null && s.isNotEmpty()) {
+                    val lastChar = s.last()
+                    if (lastChar.isLetter()) {
+                        handleLetter(lastChar.uppercaseChar())
+                    }
+                    // Clear the input after processing
+                    hiddenInput.text.clear()
+                }
+            }
+            
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        // Handle Enter and Backspace
+        hiddenInput.setOnEditorActionListener { _, actionId, event ->
+            when {
+                actionId == EditorInfo.IME_ACTION_DONE -> {
+                    handleEnter()
+                    true
+                }
+                event?.keyCode == KeyEvent.KEYCODE_DEL -> {
+                    handleBackspace()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun showKeyboard(view: View) {
+        if (view.requestFocus()) {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+        }
     }
 
     private fun loadWordList() {
@@ -69,48 +123,6 @@ class WordleActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupKeyboard() {
-        val keyboardRows = arrayOf(
-            "QWERTYUIOP",
-            "ASDFGHJKL",
-            "ENTERZXCVBNM⌫"
-        )
-
-        val rowLayouts = arrayOf(
-            findViewById<View>(R.id.keyboardRow1),
-            findViewById<View>(R.id.keyboardRow2),
-            findViewById<View>(R.id.keyboardRow3)
-        )
-
-        for ((rowIndex, row) in keyboardRows.withIndex()) {
-            val rowLayout = rowLayouts[rowIndex] as android.widget.LinearLayout
-            for (char in row) {
-                val key = MaterialButton(this).apply {
-                    text = char.toString()
-                    setOnClickListener { onKeyPress(char) }
-                    layoutParams = android.widget.LinearLayout.LayoutParams(
-                        resources.getDimensionPixelSize(R.dimen.key_size),
-                        resources.getDimensionPixelSize(R.dimen.key_size)
-                    ).apply {
-                        marginEnd = resources.getDimensionPixelSize(R.dimen.key_margin)
-                    }
-                    setBackgroundColor(ContextCompat.getColor(context, R.color.key_background))
-                    setTextColor(ContextCompat.getColor(context, R.color.key_text))
-                }
-                keyboardKeys[char] = key
-                rowLayout.addView(key)
-            }
-        }
-    }
-
-    private fun onKeyPress(key: Char) {
-        when (key) {
-            '⌫' -> handleBackspace()
-            'E' -> handleEnter()
-            else -> handleLetter(key)
-        }
-    }
-
     private fun handleLetter(letter: Char) {
         if (currentCol < wordLength) {
             gameBoard[currentRow][currentCol] = letter.toString()
@@ -138,7 +150,6 @@ class WordleActivity : AppCompatActivity() {
 
             val result = checkGuess(guess)
             updateRowColors(currentRow, result)
-            updateKeyboardColors(guess, result)
             
             if (guess == targetWord) {
                 showWinDialog()
@@ -193,15 +204,6 @@ class WordleActivity : AppCompatActivity() {
                 cell.setBackgroundResource(R.drawable.cell_background)
             }
         }
-        resetKeyboardColors()
-    }
-
-    private fun resetKeyboardColors() {
-        keyboardKeys.values.forEach { key ->
-            key.setBackgroundColor(ContextCompat.getColor(this, R.color.key_background))
-            key.setTextColor(ContextCompat.getColor(this, R.color.key_text))
-        }
-        keyStates.clear()
     }
 
     private fun animateCell(row: Int, col: Int) {
@@ -215,26 +217,6 @@ class WordleActivity : AppCompatActivity() {
             duration = 100
             interpolator = AccelerateDecelerateInterpolator()
             start()
-        }
-    }
-
-    private fun updateKeyboardColors(guess: String, result: List<Int>) {
-        for (i in guess.indices) {
-            val key = keyboardKeys[guess[i]] ?: continue
-            val newState = result[i]
-            val currentState = keyStates[guess[i]] ?: 0
-
-            // Only update if the new state is "better" than the current one
-            if (newState > currentState) {
-                keyStates[guess[i]] = newState
-                val newColor = when (newState) {
-                    2 -> ContextCompat.getColor(this, R.color.correct_position)
-                    1 -> ContextCompat.getColor(this, R.color.wrong_position)
-                    else -> ContextCompat.getColor(this, R.color.wrong_letter)
-                }
-                key.setBackgroundColor(newColor)
-                key.setTextColor(ContextCompat.getColor(this, android.R.color.white))
-            }
         }
     }
 
