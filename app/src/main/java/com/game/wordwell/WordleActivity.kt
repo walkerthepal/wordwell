@@ -24,26 +24,34 @@ import java.io.BufferedReader
 class WordleActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "WordleActivity"
+        const val EXTRA_WORD_LENGTH = "word_length"
     }
 
     private lateinit var gameGrid: GridLayout
     private lateinit var hiddenInput: EditText
     private var currentRow = 0
     private var currentCol = 0
-    private val wordLength = 5
+    private var wordLength = 5 // Default to 5 letters
     private val maxAttempts = 6
     private lateinit var targetWord: String
-    private val gameBoard = Array(maxAttempts) { Array(wordLength) { "" } }
+    private lateinit var gameBoard: Array<Array<String>>
     private val wordList = mutableListOf<String>()
     private var isProcessingEnter = false
     private var isClearing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Get word length from intent or default to 5
+        wordLength = intent.getIntExtra(EXTRA_WORD_LENGTH, 5)
+        
         setContentView(R.layout.activity_wordle)
 
         gameGrid = findViewById(R.id.gameGrid)
         hiddenInput = findViewById(R.id.hiddenInput)
+
+        // Initialize game board with correct dimensions
+        gameBoard = Array(maxAttempts) { Array(wordLength) { "" } }
 
         loadWordList()
         selectRandomWord()
@@ -129,7 +137,8 @@ class WordleActivity : AppCompatActivity() {
     }
 
     private fun loadWordList() {
-        resources.openRawResource(R.raw.wordle_words).use { inputStream ->
+        val resourceId = if (wordLength == 5) R.raw.wordle_words_5 else R.raw.wordle_words_7
+        resources.openRawResource(resourceId).use { inputStream ->
             BufferedReader(inputStream.reader()).useLines { lines ->
                 for (line in lines) {
                     val cleanedWord = line.trim().lowercase()
@@ -144,7 +153,13 @@ class WordleActivity : AppCompatActivity() {
     }
 
     private fun setupGameGrid() {
-        // Create 6x5 grid of cells
+        // Clear existing views
+        gameGrid.removeAllViews()
+        
+        // Set column count based on word length
+        gameGrid.columnCount = wordLength
+        
+        // Create 6xN grid of cells where N is the word length
         for (row in 0 until maxAttempts) {
             for (col in 0 until wordLength) {
                 val cell = TextView(this).apply {
@@ -276,6 +291,10 @@ class WordleActivity : AppCompatActivity() {
             .setTitle("Congratulations!")
             .setMessage("You've won! The word was $targetWord")
             .setPositiveButton("Play Again") { _, _ -> restartGame() }
+            .setNegativeButton("Exit") { _, _ -> 
+                finish()
+                overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+            }
             .setCancelable(false)
             .show()
     }
@@ -285,6 +304,10 @@ class WordleActivity : AppCompatActivity() {
             .setTitle("Game Over")
             .setMessage("The word was $targetWord")
             .setPositiveButton("Play Again") { _, _ -> restartGame() }
+            .setNegativeButton("Exit") { _, _ -> 
+                finish()
+                overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+            }
             .setCancelable(false)
             .show()
     }

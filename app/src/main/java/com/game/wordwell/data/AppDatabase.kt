@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
-@Database(entities = [WordEntity::class], version = 1, exportSchema = false)
+@Database(entities = [WordEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun wordDao(): WordDao
 
@@ -28,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "wordwell_database"
                 )
                 .addCallback(WordDatabaseCallback(context, scope))
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance
@@ -50,24 +51,42 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         private suspend fun populateDatabase(context: Context, wordDao: WordDao) {
-            if (wordDao.getWordCount() == 0) {
+            if (wordDao.getWordCount(5) == 0) {
                 val words = mutableListOf<WordEntity>()
+                
                 try {
-                    val inputStream = context.resources.openRawResource(R.raw.wordle_words)
-                    val reader = BufferedReader(InputStreamReader(inputStream))
+                    val inputStream5 = context.resources.openRawResource(R.raw.wordle_words_5)
+                    val reader5 = BufferedReader(InputStreamReader(inputStream5))
                     var line: String?
-                    while (reader.readLine().also { line = it } != null) {
+                    while (reader5.readLine().also { line = it } != null) {
                         line?.trim()?.let {
                             if (it.length == 5) {
-                                words.add(WordEntity(word = it.uppercase()))
+                                words.add(WordEntity(word = it.uppercase(), wordLength = 5))
                             }
                         }
                     }
-                    reader.close()
-                    wordDao.insertAllWords(words)
+                    reader5.close()
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+
+                try {
+                    val inputStream7 = context.resources.openRawResource(R.raw.wordle_words_7)
+                    val reader7 = BufferedReader(InputStreamReader(inputStream7))
+                    var line: String?
+                    while (reader7.readLine().also { line = it } != null) {
+                        line?.trim()?.let {
+                            if (it.length == 7) {
+                                words.add(WordEntity(word = it.uppercase(), wordLength = 7))
+                            }
+                        }
+                    }
+                    reader7.close()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                wordDao.insertAllWords(words)
             }
         }
     }
