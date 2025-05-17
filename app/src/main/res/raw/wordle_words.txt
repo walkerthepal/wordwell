@@ -926,6 +926,7 @@ farce
 fared
 fares
 farms
+farts
 fasts
 fatal
 fated
@@ -1399,6 +1400,7 @@ infer
 ingot
 inlet
 inner
+input
 inter
 inure
 irate
@@ -2606,6 +2608,7 @@ stony
 stood
 stool
 stoop
+stomp
 stops
 store
 stork
